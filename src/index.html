@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>投料计算器</title>
+<!-- PWA（部署到 https 时生效；本地 file:// 打开时这些链接会静默失效，不影响使用） -->
+<meta name="theme-color" content="#1668c1">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="投料计算器">
+<meta name="description" content="实验室反应投料量计算：输入中文名或 CAS 自动取分子量，填一部分数据自动补全整张投料表，并汇总危险提醒与淬灭提示。">
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <span class="logo">⚗</span>
+      <h1>投料计算器</h1>
+      <span class="badge" id="dictBadge"></span>
+    </div>
+    <div class="topmeta">
+      <label>反应名 <input id="runName" placeholder="如 Knoevenagel 模型反应"></label>
+      <label>日期 <input id="runDate" type="date"></label>
+    </div>
+  </header>
+
+  <section class="panel anchor">
+    <div class="anchor-left">
+      <label class="radio"><input type="radio" name="anchorMode" value="ref" checked> 按参考物</label>
+      <label class="radio"><input type="radio" name="anchorMode" value="product"> 按产物反算</label>
+      <span class="scale-hint" id="scaleHint"></span>
+    </div>
+    <div class="anchor-panels">
+      <div id="refPanel" class="anchor-panel">
+        <span class="apl">点行首 ◉ 切换参考物（限制试剂）；它的当量恒为 1.00，其余当量都相对它计算</span>
+      </div>
+      <div id="productPanel" class="anchor-panel" hidden>
+        <label>产物分子量 <input id="prodMW" type="number" step="0.001" placeholder="如 176.215"></label>
+        <label>目标产量 <input id="prodMass" type="number" step="0.001" placeholder="g"> g</label>
+        <label>收率 <input id="prodYield" type="number" step="1" value="100"> %</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="tablewrap">
+      <table class="charge" id="chargeTable">
+        <thead>
+          <tr>
+            <th class="c-ref" title="选为参考物（限制试剂）">◉</th>
+            <th class="c-name">试剂</th>
+            <th class="c-mw">M.W.</th>
+            <th class="c-prop">密度 / 浓度</th>
+            <th class="c-num" title="填当量，也可以直接写 10 mol% 或 5%">当量</th>
+            <th class="c-num">mmol</th>
+            <th class="c-num">质量</th>
+            <th class="c-num">体积</th>
+            <th class="c-role">角色</th>
+            <th class="c-act"></th>
+          </tr>
+        </thead>
+        <tbody id="chargeBody"></tbody>
+      </table>
+    </div>
+    <div class="tbl-actions">
+      <button class="btn primary" id="addRowBtn">+ 添加试剂行</button>
+      <div class="recent-wrap">
+        <button class="btn" id="recentBtn">最近用过 ▾</button>
+        <div class="recent-menu" id="recentMenu"></div>
+      </div>
+      <span class="unit-hint">质量列单位 <b>g</b>　体积列单位 <b>mL</b>　当量列可写 <code>10 mol%</code>　也可直接输入 <code>10612 mg</code>、<code>44 mL</code> 这类带单位的值</span>
+    </div>
+  </section>
+
+  <section class="panel solvent">
+    <span class="pl">溶剂</span>
+    <input id="solventName" placeholder="如 四氢呋喃" autocomplete="off">
+    <input id="solventVol" placeholder="体积（可写 200 mL）" autocomplete="off">
+  </section>
+
+  <section class="warn-zone" id="warnZone"></section>
+
+  <section class="hazard-zone" id="hazardZone"></section>
+
+  <footer class="toolbar">
+    <button class="btn" id="scaleBtn" title="按比例整体放大或缩小">缩放 ×</button>
+    <button class="btn" id="exportMdBtn">导出 Markdown</button>
+    <button class="btn" id="exportCsvBtn">导出 CSV</button>
+    <button class="btn" id="printBtn">打印</button>
+    <button class="btn" id="dictBtn">词典管理</button>
+    <button class="btn ghost" id="clearBtn">清空</button>
+  </footer>
+
+  <div class="footnote">
+    分子量按 IUPAC 平均原子量本地计算；中文名经百度百科开放接口，分子式与危害数据来自 PubChem。
+    危险提醒仅汇总数据源原文与标准短语，<b>不构成操作建议，不能替代 SDS</b>。
+  </div>
+
+</div>
+
+<!-- 添加试剂 -->
+<div class="modal" id="addModal">
+  <div class="modal-box">
+    <div class="modal-head">添加试剂</div>
+    <div class="modal-body">
+      <div class="add-row">
+        <input id="addInput" placeholder="中文名 / CAS 号 / 分子式 / 英文名" autocomplete="off" spellcheck="false">
+        <button class="btn primary" id="addLookupBtn">查询</button>
+      </div>
+      <div class="add-hint" id="addHint"></div>
+      <div class="add-progress" id="addProgress"></div>
+      <div class="add-preview" id="addPreview"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="addCancelBtn">取消</button>
+      <button class="btn primary" id="addConfirmBtn" disabled>确认入库</button>
+    </div>
+  </div>
+</div>
+
+<!-- 物性 -->
+<div class="modal" id="propModal">
+  <div class="modal-box">
+    <div class="modal-head" id="propTitle">物性</div>
+    <div class="modal-body">
+      <div class="pv-row"><span class="pv-k">形态</span><span class="pv-v">
+        <select id="propType">
+          <option value="solid">固体（按质量称取）</option>
+          <option value="liquid">液体（可按体积量取，需密度）</option>
+          <option value="solution">溶液（按浓度算体积）</option>
+        </select>
+      </span></div>
+      <div class="pv-row" id="propDensityRow"><span class="pv-k">密度</span><span class="pv-v">
+        <input id="propDensity" type="number" step="0.001" placeholder="g/mL"> g/mL
+        <button class="minibtn" id="propDensityQuery" type="button">查 PubChem 候选</button>
+        <span class="hintmini" id="propDensitySrc"></span>
+        <div id="propDensityCands" class="dens-cands" hidden></div>
+      </span></div>
+      <div class="pv-row" id="propConcRow" hidden><span class="pv-k">浓度</span><span class="pv-v">
+        <input id="propConc" type="number" step="0.01" placeholder="mol/L"> mol/L
+        ｜介质 <input id="propMedium" type="text" placeholder="如 正己烷">
+      </span></div>
+      <div class="pv-row"><span class="pv-k">纯度</span><span class="pv-v">
+        <input id="propPurity" type="number" step="0.1" placeholder="100"> %
+      </span></div>
+      <div class="pv-row"><span class="pv-k">分子量</span><span class="pv-v">
+        <input id="propMW" type="number" step="0.001"> <span class="hintmini" id="propMWNote"></span>
+      </span></div>
+      <div class="pv-note">这几项都可以手工覆盖：例如实际称量形式是盐酸盐（分子量要加 36.46）、试剂含量 95%、或按瓶标上的实测浓度投料。</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="propCancel">取消</button>
+      <button class="btn primary" id="propOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 词典 -->
+<div class="modal" id="dictModal">
+  <div class="modal-box wide">
+    <div class="modal-head">词典管理</div>
+    <div class="modal-body" id="dictBody"></div>
+    <div class="modal-foot">
+      <button class="btn" id="dictImport">导入 JSON</button>
+      <button class="btn" id="dictExport">导出个人词典</button>
+      <button class="btn primary" id="dictClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/*__PICTO__*/
+</script>
+<script>
+/*__TABLES__*/
+</script>
+<script>
+window.__DICT__ = /*__DICT__*/;
+</script>
+<script>
+/*__ENGINE__*/
+</script>
+<script>
+/*__HAZARD__*/
+</script>
+<script>
+/*__NET__*/
+</script>
+<script>
+/*__APP__*/
+</script>
+<script>
+/*__APPUI__*/
+</script>
+<script>
+/* 注册 Service Worker：只在 https（或 localhost）下生效，file:// 双击打开时会静默跳过 */
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  var ok = location.protocol === 'https:' ||
+           location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if (!ok) return;
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () { /* 没网/没文件就算了 */ });
+  });
+})();
+</script>
+</body>
+</html>

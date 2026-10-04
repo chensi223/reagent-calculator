@@ -1,0 +1,16 @@
+# 默认：文本文件统一 LF，避免不同编辑器引入 CRLF 后整文件 diff
+* text=auto eol=lf
+
+# 明确按二进制处理
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.zip binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+
+# 这些文件里混着中英文，不做行尾转换更安全
+*.md text eol=lf
+*.txt text eol=lf

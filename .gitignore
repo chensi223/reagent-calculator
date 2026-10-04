@@ -1,0 +1,38 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---- 构建/调试临时产物 ----
+build/_*
+build/_shots/
+build/_ep_*/
+build/_edgeprof/
+build/_demo.html
+build/_mobile_wrap.html
+*.tmp
+*.log
+
+# ---- 分发包（每次构建都会变，放进版本库只会污染历史）----
+# 想拿现成的直接跑 build/make_*.py，或者下载 Releases
+dist/*.zip
+dist/投料计算器/
+dist/投料计算器_网页部署包/
+
+# ---- 第三方参考项目文件 ----
+# RMC.py 与 reagents_db.csv 来自 Huozqi/Reagent-Mass-Calculator（MIT），
+# 版权归原作者，本项目一行代码都没有使用它们，因此不随本仓库分发。
+# 调研结论见 build/参考项目评估.md。
+build/RMC.py
+build/reagents_db.csv
+
+# ---- 编辑器 / 操作系统 ----
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>e2e test</title></head>
+<body>
+<pre id="out">RUNNING</pre>
+<script>
+window.onerror = function (m, s, l) {
+  var o = document.getElementById('out');
+  if (o) o.textContent = (o.textContent === 'RUNNING' ? '' : o.textContent + '\n') + 'JS ERROR: ' + m + ' @' + l;
+  return false;
+};
+</script>
+<script src="../src/tables.js"></script>
+<script src="../src/pictograms.js"></script>
+<script src="../src/engine.js"></script>
+<script src="../src/hazard.js"></script>
+<script src="../src/net.js"></script>
+<script>
+const L = [];
+function say(s) { L.push(s); document.getElementById('out').textContent = L.join('\n'); }
+function summarize(tag, r) {
+  say('[' + tag + '] ' + (r.zh || '?') + '  CAS=' + (r.cas || '—') + '  formula=' + (r.formula || '—') +
+    '  MW=' + (r.mw != null ? r.mw.toFixed(3) : '—') + '  CID=' + (r.cid || '—') +
+    '  type=' + r.type + '  d=' + (r.density != null ? r.density : '—'));
+  const hz = r.hazard;
+  if (hz) {
+    say('        grade=' + hz.grade + '  signal=' + (hz.signal || '—') +
+      '  pict=' + JSON.stringify(hz.pict || []) +
+      '  src=' + JSON.stringify(hz.src || []));
+    say('        H=' + JSON.stringify((hz.h || []).slice(0, 7).map(x => x.code + (x.pct != null ? '(' + x.pct + ')' : ''))));
+    if (hz.note) say('        note=' + hz.note);
+    const b = hz.baike;
+    if (b && (b.symbols.length || b.r.length)) say('        百科: ' + JSON.stringify(b.symbols) + ' R=' + JSON.stringify(b.r.slice(0, 6)));
+  } else say('        (无 hazard 对象)');
+}
+
+(async function () {
+  const ctx = { dictIndex: buildDictIndex({ reagents: [] }), personal: buildPersonalIndex([]) };
+  const cases = ['正丁基锂', '三氟乙酸', '100-52-7', 'C7H6O', '氢化钠', '苯甲醛'];
+  for (const c of cases) {
+    say('──────── 查询「' + c + '」');
+    try {
+      const t0 = Date.now();
+      const r = await resolveReagent(c, ctx, m => say('   · ' + m));
+      summarize(c, r);
+      say('        耗时 ' + ((Date.now() - t0) / 1000).toFixed(2) + ' s');
+    } catch (e) {
+      say('   ✕ 失败: ' + e.message);
+    }
+  }
+  say('');
+  say('DONE');
+  document.getElementById('out').textContent = L.join('\n');
+})();
+</script>
+</body></html>

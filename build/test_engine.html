@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>engine test</title></head>
+<body>
+<pre id="out">RUNNING</pre>
+<script>
+window.onerror = function (m, s, l, c) {
+  var o = document.getElementById('out');
+  var msg = 'JS ERROR: ' + m + '  @ ' + String(s).split('/').pop() + ':' + l + ':' + c;
+  if (o) o.textContent = (o.textContent === 'RUNNING' ? '' : o.textContent + '\n') + msg;
+  else document.title = msg;
+  return false;
+};
+</script>
+<script src="../src/tables.js"></script>
+<script src="../src/pictograms.js"></script>
+<script src="../src/engine.js"></script>
+<script src="../src/hazard.js"></script>
+<script src="../src/net.js"></script>
+<script>
+const L = [];
+let pass = 0, fail = 0;
+function ok(name, cond, extra) {
+  if (cond) { pass++; L.push('PASS  ' + name + (extra ? '   ' + extra : '')); }
+  else { fail++; L.push('FAIL  ' + name + (extra ? '   ' + extra : '')); }
+}
+function near(a, b, tol) { return a != null && Math.abs(a - b) <= (tol == null ? 1e-6 : tol); }
+
+/* ---- 1. 分子式与分子量 ---- */
+ok('parseFormula C7H6O', JSON.stringify(parseFormula('C7H6O')) === '{"C":7,"H":6,"O":1}');
+ok('mw C7H6O ≈ 106.124', near(mwFromFormula('C7H6O'), 106.124, 0.002), mwFromFormula('C7H6O').toFixed(4));
+ok('mw CH2Cl2 ≈ 84.93', near(mwFromFormula('CH2Cl2'), 84.93, 0.02), mwFromFormula('CH2Cl2').toFixed(3));
+ok('mw C4H9Li ≈ 64.06', near(mwFromFormula('C4H9Li'), 64.06, 0.02), mwFromFormula('C4H9Li').toFixed(3));
+ok('mw C2HF3O2 ≈ 114.02', near(mwFromFormula('C2HF3O2'), 114.02, 0.02), mwFromFormula('C2HF3O2').toFixed(3));
+ok('括号式 Ca(OH)2 ≈ 74.09', near(mwFromFormula('Ca(OH)2'), 74.093, 0.02), mwFromFormula('Ca(OH)2').toFixed(3));
+ok('exact C7H6O ≈ 106.0419', near(exactMassFromFormula('C7H6O'), 106.0419, 0.001), exactMassFromFormula('C7H6O').toFixed(5));
+ok('清洗带备注分子式', normalizeFormula('C2HF3O2（CF₃COOH）') === 'C2HF3O2', normalizeFormula('C2HF3O2（CF₃COOH）'));
+ok('规范化 C7H6O', normalizeFormula('H6OC7') === 'C7H6O');
+
+/* ---- 2. CAS ---- */
+ok('casValid 100-52-7', casValid('100-52-7') === true);
+ok('casValid 100-52-8 应为假', casValid('100-52-8') === false);
+ok('casValid 109-72-8', casValid('109-72-8') === true);
+ok('casValid 76-05-1', casValid('76-05-1') === true);
+ok('extractCas 141-78-64 → 141-78-6', extractCas('141-78-64') === '141-78-6', extractCas('141-78-64'));
+ok('extractCas 67-56-12 → 67-56-1', extractCas('67-56-12') === '67-56-1', extractCas('67-56-12'));
+ok('extractCas 109-72-82 → 109-72-8', extractCas('109-72-82') === '109-72-8', extractCas('109-72-82'));
+ok('extractCas 带 sup 标签', extractCas('76-05-1<sup>2</sup><a name="ref_2"></a>') === '76-05-1', extractCas('76-05-1<sup>2</sup><a name="ref_2"></a>'));
+ok('extractCas 干净值', extractCas('100-52-7') === '100-52-7');
+ok('extractCas 无值返回 null', extractCas('') === null);
+
+/* ---- 3. 输入识别 ---- */
+ok('识别 CAS', detectInputType('100-52-7').type === 'cas');
+ok('识别 CAS 校验位', detectInputType('100-52-8').valid === false);
+ok('识别中文名', detectInputType('苯甲醛').type === 'zh');
+ok('识别分子式', detectInputType('C7H6O').type === 'formula');
+ok('识别英文名', detectInputType('benzaldehyde').type === 'en');
+ok('识别缩写 n-BuLi 为英文', detectInputType('n-BuLi').type === 'en');
+
+/* ---- 4. 数量解析 ---- */
+ok('10612 mg → 10.612 g', near(parseQuantity('10612 mg').value, 10.612, 1e-9) && parseQuantity('10612 mg').kind === 'mass');
+ok('44 mL → 44', near(parseQuantity('44 mL').value, 44, 1e-9) && parseQuantity('44 mL').kind === 'vol');
+ok('2.5 mmol → 2.5', near(parseQuantity('2.5 mmol').value, 2.5, 1e-9) && parseQuantity('2.5 mmol').kind === 'mol');
+ok('500 uL → 0.5 mL', near(parseQuantity('500 uL').value, 0.5, 1e-9));
+ok('裸数字 100', parseQuantity('100').kind === 'bare' && parseQuantity('100').value === 100);
+ok('1.5 g → 1.5 g', near(parseQuantity('1.5 g').value, 1.5, 1e-9));
+
+/* ---- 5. 格式化 ---- */
+ok('fmtMass 10.612 g', fmtMass(10.612) === '10.612 g', fmtMass(10.612));
+ok('fmtMass 0.85 → 850.0 mg', fmtMass(0.85) === '850.0 mg', fmtMass(0.85));
+ok('fmtVol 44 → 44.00 mL', fmtVol(44) === '44.00 mL', fmtVol(44));
+ok('fmtVol 0.0049 → 4.9 µL', fmtVol(0.0049).indexOf('µL') > 0, fmtVol(0.0049));
+
+/* ---- 6. 约束传播：100 mmol 标准场景 ---- */
+function mkR(o) { return normalizeReagent(Object.assign({ zh: 'x', purity: 100 }, o)); }
+function mkRow(reagent, cells, role) {
+  const r = {
+    reagent: reagent, type: reagent.type, conc: reagent.conc, medium: reagent.medium,
+    role: role || 'reagent',
+    equiv: { v: null, src: null }, mmol: { v: null, src: null },
+    mass: { v: null, src: null }, volume: { v: null, src: null },
+    mwOverride: null, densityOverride: null, purityOverride: null, concOverride: null, locked: []
+  };
+  for (const k in (cells || {})) r[k] = { v: cells[k], src: 'user' };
+  return r;
+}
+
+const st = {
+  anchorMode: 'ref', refIndex: 0, product: {},
+  rows: [
+    mkRow(mkR({ zh: '苯甲醛', mw: 106.124, density: 1.04, type: 'liquid' }), { mmol: 100 }, 'substrate'),
+    mkRow(mkR({ zh: '丙二酸二乙酯', mw: 160.169, density: 1.055, type: 'liquid' }), { equiv: 1.2 }, 'reagent'),
+    mkRow(mkR({ zh: '正丁基锂', mw: 64.055, type: 'solution', conc: 2.5 }), { equiv: 1.1 }, 'base'),
+    mkRow(mkR({ zh: '哌啶', mw: 85.15, density: 0.862, type: 'liquid' }), { equiv: 0.1 }, 'catalyst')
+  ]
+};
+const w1 = solve(st);
+ok('求解无阻塞警告', !w1.some(w => w.level === 'block'), JSON.stringify(w1.slice(0, 2)));
+ok('参考物当量=1', qv(st.rows[0].equiv) === 1, String(qv(st.rows[0].equiv)));
+ok('丙二酸二乙酯 mmol = 120', near(qv(st.rows[1].mmol), 120, 1e-6), String(qv(st.rows[1].mmol)));
+ok('丙二酸二乙酯 质量 ≈ 19.220 g', near(qv(st.rows[1].mass), 19.2203, 0.002), String(qv(st.rows[1].mass)));
+ok('丙二酸二乙酯 体积 ≈ 18.22 mL', near(qv(st.rows[1].volume), 18.218, 0.02), String(qv(st.rows[1].volume)));
+ok('苯甲醛 质量 ≈ 10.612 g', near(qv(st.rows[0].mass), 10.6124, 0.002), String(qv(st.rows[0].mass)));
+ok('苯甲醛 体积 ≈ 10.20 mL', near(qv(st.rows[0].volume), 10.204, 0.02), String(qv(st.rows[0].volume)));
+ok('n-BuLi 体积 = 44.00 mL (110/2.5)', near(qv(st.rows[2].volume), 44.0, 1e-6), String(qv(st.rows[2].volume)));
+ok('哌啶 质量 ≈ 0.851 g', near(qv(st.rows[3].mass), 0.8515, 0.002), String(qv(st.rows[3].mass)));
+
+/* ---- 7. 反向：给某试剂质量 + 当量，反推参考物 ---- */
+const st2 = {
+  anchorMode: 'ref', refIndex: 0, product: {},
+  rows: [
+    mkRow(mkR({ zh: '苯甲醛', mw: 106.124, density: 1.04, type: 'liquid' }), {}, 'substrate'),
+    mkRow(mkR({ zh: '丙二酸二乙酯', mw: 160.169, density: 1.055, type: 'liquid' }), { mass: 19.2203, equiv: 1.2 }, 'reagent')
+  ]
+};
+solve(st2);
+ok('反推参考物 mmol ≈ 100', near(qv(st2.rows[0].mmol), 100, 0.02), String(qv(st2.rows[0].mmol)));
+ok('反推后苯甲醛质量 ≈ 10.61 g', near(qv(st2.rows[0].mass), 10.6124, 0.01), String(qv(st2.rows[0].mass)));
+
+/* ---- 8. 按体积给参考物 ---- */
+const st3 = {
+  anchorMode: 'ref', refIndex: 0, product: {},
+  rows: [
+    mkRow(mkR({ zh: '苯甲醛', mw: 106.124, density: 1.04, type: 'liquid' }), { volume: 10.2042 }, 'substrate'),
+    mkRow(mkR({ zh: '哌啶', mw: 85.15, density: 0.862, type: 'liquid' }), { equiv: 0.1 }, 'catalyst')
+  ]
+};
+solve(st3);
+ok('按体积给参考物 → mmol ≈ 100', near(qv(st3.rows[0].mmol), 100, 0.05), String(qv(st3.rows[0].mmol)));
+
+/* ---- 9. 产物反算 ---- */
+const st4 = {
+  anchorMode: 'product', refIndex: 0,
+  product: { mw: 176.215, targetMass: 0.080, yield: 85 },
+  rows: [
+    mkRow(mkR({ zh: '苯甲醛', mw: 106.124, type: 'liquid', density: 1.04 }), { equiv: 1 }, 'substrate'),
+    mkRow(mkR({ zh: '丙二酸二乙酯', mw: 160.169, type: 'liquid', density: 1.055 }), { equiv: 1.2 }, 'reagent')
+  ]
+};
+solve(st4);
+ok('产物反算 → 参考物 ≈ 0.534 mmol', near(qv(st4.rows[0].mmol), 0.5341, 0.002), String(qv(st4.rows[0].mmol)));
+
+/* ---- 10. 缺锚点应报阻塞 ---- */
+const st5 = {
+  anchorMode: 'ref', refIndex: 0, product: {},
+  rows: [
+    mkRow(mkR({ zh: 'a', mw: 100, type: 'solid' }), { equiv: 1 }, 'substrate'),
+    mkRow(mkR({ zh: 'b', mw: 100, type: 'solid' }), { equiv: 1.2 }, 'reagent')
+  ]
+};
+const w5 = solve(st5);
+ok('无绝对量 → 报 block', w5.some(w => w.level === 'block'));
+
+/* ---- 11. 纯度与分子量覆盖 ---- */
+const st6 = {
+  anchorMode: 'ref', refIndex: 0, product: {},
+  rows: [
+    mkRow(mkR({ zh: 'x', mw: 100, type: 'solid' }), { mmol: 100 }, 'substrate'),
+    mkRow(mkR({ zh: 'y', mw: 100, type: 'solid' }), { equiv: 1 }, 'reagent')
+  ]
+};
+st6.rows[1].purityOverride = 95;
+solve(st6);
+ok('纯度 95% → 称量质量 10.526 g', near(qv(st6.rows[1].mass), 10.5263, 0.002), String(qv(st6.rows[1].mass)));
+st6.rows[1].mwOverride = 120;
+solve(st6);
+ok('分子量覆盖 120 → 质量 12.632 g', near(qv(st6.rows[1].mass), 12.6316, 0.002), String(qv(st6.rows[1].mass)));
+
+/* ---- 12. 危险分级 ---- */
+function hzOf(codes, signal) {
+  const h = { signal: signal || 'Danger', h: codes.map(c => ({ code: c, pct: 100 })), pict: [], src: [] };
+  return gradeHazard(h);
+}
+ok('H250 自燃 → high', hzOf(['H250']) === 'high');
+ok('H314 灼伤 → high', hzOf(['H314']) === 'high');
+ok('H225 易燃 → medium', hzOf(['H225']) === 'medium');
+ok('H319 眼刺激 → medium', hzOf(['H319']) === 'medium');
+ok('H400 环境 → medium', hzOf(['H400']) === 'medium');
+ok('无代码 → unknown', gradeHazard({ h: [], pict: [], baike: null }) === 'unknown');
+ok('H_CN 有中文', (H_CN['H314'] || '').indexOf('灼伤') >= 0, H_CN['H314']);
+ok('H_CN 覆盖 H250', !!H_CN['H250'], H_CN['H250']);
+ok('sortHCodes 高危在前', sortHCodes([{ code: 'H302', pct: 100 }, { code: 'H250', pct: 10 }])[0].code === 'H250');
+
+/* ---- 13. 词典 hazard 格式兼容 ---- */
+const conv = coerceHazard({ signal: 'Danger', pict: ['GHS02'], h: [['H250', 83.9], ['H302', null]] });
+ok('词典 h 数组格式转换', conv.h.length === 2 && conv.h[0].code === 'H250' && conv.h[0].pct === 83.9);
+ok('转换后分级 high', conv.grade === 'high', conv.grade);
+
+/* ---- 14. 冲突检测 ---- */
+const st7 = {
+  anchorMode: 'ref', refIndex: 0, product: {},
+  rows: [
+    mkRow(mkR({ zh: 'a', mw: 100, type: 'solid' }), { mmol: 100 }, 'substrate'),
+    mkRow(mkR({ zh: 'b', mw: 100, type: 'solid' }), { mass: 32.0 }, 'reagent')
+  ]
+};
+st7.rows[1].equiv = { v: 1.0, src: 'user' };
+const cf = detectConflicts(st7);
+ok('质量与当量不符 → 检出冲突', cf.length >= 1, JSON.stringify(cf.map(c => c.msg)).slice(0, 90));
+
+/* ---- 15. 缩放 ---- */
+const st8 = {
+  anchorMode: 'ref', refIndex: 0, product: {},
+  rows: [
+    mkRow(mkR({ zh: 'a', mw: 100, type: 'solid' }), { mmol: 100 }, 'substrate'),
+    mkRow(mkR({ zh: 'b', mw: 100, type: 'solid' }), { equiv: 2 }, 'reagent')
+  ]
+};
+solve(st8);
+scaleTo(st8, 50);
+solve(st8);
+ok('缩放到 50 mmol', near(qv(st8.rows[0].mmol), 50, 1e-6) && near(qv(st8.rows[1].mass), 10, 0.01),
+  qv(st8.rows[0].mmol) + ' / ' + qv(st8.rows[1].mass));
+
+/* ---- 16. 溶液预置表 ---- */
+ok('溶液预置含 n-BuLi 2.5M', SOLUTION_PRESETS.some(p => p.cas === '109-72-8' && p.conc === 2.5));
+ok('溶液预置含 LDA 2.0M', SOLUTION_PRESETS.some(p => p.cas === '4111-54-0' && p.conc === 2.0));
+ok('溶液预置含 DIBAL-H', SOLUTION_PRESETS.some(p => p.cas === '1191-15-7'));
+ok('象形图 9 个', Object.keys(PICTO).length === 9, Object.keys(PICTO).join(','));
+ok('象形图为 data URI', String(PICTO.GHS02).indexOf('data:image/svg+xml;base64,') === 0);
+
+/* ---- 17. 纯度对体积的影响（曾经算错过的回归用例） ---- */
+const st9 = {
+  anchorMode: 'ref', refIndex: 0, product: {},
+  rows: [
+    mkRow(mkR({ zh: 'a', mw: 106.124, density: 1.05, type: 'liquid' }), { mmol: 50 }, 'substrate'),
+    mkRow(mkR({ zh: 'b', mw: 100, type: 'solid' }), { equiv: 1 }, 'reagent')
+  ]
+};
+st9.rows[0].purityOverride = 95;
+solve(st9);
+// 称量质量 = 50 × 106.124 / 1000 / 0.95 = 5.5855 g ；体积 = 5.5855 / 1.05 = 5.3195 mL
+ok('含量95%：称量质量 5.5855 g', near(qv(st9.rows[0].mass), 5.5855, 0.001), String(qv(st9.rows[0].mass)));
+ok('含量95%：体积 5.3195 mL（按称量质量算，不是按 mmol）', near(qv(st9.rows[0].volume), 5.3195, 0.001), String(qv(st9.rows[0].volume)));
+
+/* ---- 18. 按体积给参考物 + 纯度 ---- */
+const st10 = {
+  anchorMode: 'ref', refIndex: 0, product: {},
+  rows: [
+    mkRow(mkR({ zh: 'a', mw: 106.124, density: 1.05, type: 'liquid' }), { volume: 5.3195 }, 'substrate'),
+    mkRow(mkR({ zh: 'b', mw: 100, type: 'solid' }), { equiv: 1 }, 'reagent')
+  ]
+};
+st10.rows[0].purityOverride = 95;
+solve(st10);
+ok('按体积 5.3195 mL + 含量95% → 参考物 ≈ 50 mmol', near(qv(st10.rows[0].mmol), 50, 0.05), String(qv(st10.rows[0].mmol)));
+
+/* ---- 19. 产物反算要覆盖参考物旧的绝对量 ---- */
+const st11 = {
+  anchorMode: 'product', refIndex: 0,
+  product: { mw: 262.29, targetMass: 5, yield: 80 },
+  rows: [
+    mkRow(mkR({ zh: 'a', mw: 106.124, density: 1.05, type: 'liquid' }), { mmol: 50 }, 'substrate'),
+    mkRow(mkR({ zh: 'b', mw: 100, type: 'solid' }), { equiv: 0.1 }, 'reagent')
+  ]
+};
+solve(st11);
+ok('产物反算覆盖参考物旧值：50 → 23.83 mmol', near(qv(st11.rows[0].mmol), 23.83, 0.05), String(qv(st11.rows[0].mmol)));
+
+/* ---- 20. mol% 等价于小数当量 ---- */
+const st12 = {
+  anchorMode: 'ref', refIndex: 0, product: {},
+  rows: [
+    mkRow(mkR({ zh: 'a', mw: 100, type: 'solid' }), { mmol: 100 }, 'substrate'),
+    mkRow(mkR({ zh: 'b', mw: 100, type: 'solid' }), { equiv: 0.1 }, 'reagent')
+  ]
+};
+solve(st12);
+ok('0.1 equiv = 10 mol% → 10 mmol', near(qv(st12.rows[1].mmol), 10, 1e-6), String(qv(st12.rows[1].mmol)));
+
+L.push('');
+L.push('==== 通过 ' + pass + ' / 失败 ' + fail + ' ====');
+document.getElementById('out').textContent = L.join('\n');
+</script>
+</body></html>
