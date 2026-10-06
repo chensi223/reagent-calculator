@@ -75,6 +75,20 @@ window.addEventListener('load', function () {
 '''
 
 
+# 第三张图：添加试剂弹层里「手动输入自定义化合物」展开的样子
+MANUAL = r'''
+<script>
+window.addEventListener('load', function () { setTimeout(function () {
+  openAddModal('');
+  document.getElementById('manualToggle').click();
+  document.getElementById('manName').value = '化合物 3a';
+  var f = document.getElementById('manFormula');
+  f.value = 'C17H20N2O2'; f.dispatchEvent(new Event('input'));
+}, 300); });
+</script>
+'''
+
+
 def find_browser():
     for b in BROWSERS:
         if os.path.exists(b):
@@ -129,13 +143,21 @@ def main():
             encoding='utf-8')
         shot(browser, wrap.as_uri(), work / 'mobile_raw.png', 400, 3200, 2, work)
 
+        # 第三张：手动输入自定义化合物的弹层
+        man = work / '_manual.html'
+        man.write_text(dist_html.read_text(encoding='utf-8').replace('</body>', MANUAL + '</body>'),
+                       encoding='utf-8')
+        shot(browser, man.as_uri(), work / 'manual_raw.png', 1200, 1010, 2, work)
+
         # 裁掉多余留白
         try:
             from PIL import Image
         except ImportError:
-            print('   （没装 Pillow，跳过裁剪，直接复制原图）')
-            shutil.copy2(work / 'desktop_raw.png', OUT / 'screenshot-desktop.png')
-            shutil.copy2(work / 'mobile_raw.png', OUT / 'screenshot-mobile.png')
+            print('   （没装 Pillow，跳过裁剪，三张图原样复制）')
+            for src, dst in [('desktop_raw.png', 'screenshot-desktop.png'),
+                             ('mobile_raw.png', 'screenshot-mobile.png'),
+                             ('manual_raw.png', 'manual-compound.png')]:
+                shutil.copy2(work / src, OUT / dst)
             return
 
         d = Image.open(work / 'desktop_raw.png').convert('RGB')
@@ -143,7 +165,24 @@ def main():
         m = Image.open(work / 'mobile_raw.png').convert('RGB')
         m.crop((0, 0, 780, 2200)).save(OUT / 'screenshot-mobile.png', optimize=True)
 
-        for name in ('screenshot-desktop.png', 'screenshot-mobile.png'):
+        # 弹层那张：整幅被半透明遮罩压暗，不能按颜色取整张，
+        # 改成找「接近白色」的像素带（即弹层本体）来确定边界。
+        try:
+            import numpy as np
+            im = Image.open(work / 'manual_raw.png').convert('RGB')
+            a = np.array(im)
+            light = (a[:, :, 0] >= 244) & (a[:, :, 1] >= 244) & (a[:, :, 2] >= 244)
+            rows = np.where(light.sum(axis=1) > 800)[0]
+            cols = np.where(light.sum(axis=0) > 400)[0]
+            if len(rows) and len(cols):
+                pad = 16
+                im = im.crop((max(0, cols.min() - pad), max(0, rows.min() - pad),
+                              min(im.width, cols.max() + pad), min(im.height, rows.max() + pad)))
+            im.save(OUT / 'manual-compound.png', optimize=True)
+        except ImportError:
+            shutil.copy2(work / 'manual_raw.png', OUT / 'manual-compound.png')
+
+        for name in ('screenshot-desktop.png', 'screenshot-mobile.png', 'manual-compound.png'):
             p = OUT / name
             print('   -> %s  (%.0f KB)' % (p.relative_to(ROOT), p.stat().st_size / 1024))
     finally:
