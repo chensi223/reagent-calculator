@@ -189,6 +189,12 @@ function rowName(r) {
   const g = r.reagent || {};
   return g.zh || g.en || g.cas || g.formula || '未知';
 }
+/* 手工建的词条：没有 CAS，分子量不是来自数据库。
+   从个人词典里再查出来时 _src 会变成 'personal'，所以两种都要认。 */
+function isCustomReagent(g) {
+  if (!g) return false;
+  return g._src === 'manual' || (g._src === 'personal' && !g.cas);
+}
 function isUser(cell) { return cell && cell.src === 'user'; }
 
 /* ---------------- 计算 ---------------- */
@@ -295,8 +301,10 @@ function renderTable() {
     tr.innerHTML =
       '<td class="c-ref"><input type="radio" name="refsel" data-field="__ref"' + (i === state.refIndex ? ' checked' : '') + '></td>' +
       '<td class="c-name">' +
-      '<div class="rn"><span class="hzwrap" data-field="__warn"></span>' + esc(rowName(r)) + '</div>' +
-      '<div class="rc">' + esc(g.cas || g.formula || '') + '</div></td>' +
+      '<div class="rn"><span class="hzwrap" data-field="__warn"></span>' + esc(rowName(r)) +
+      (isCustomReagent(g) ? '<span class="tag-custom" title="自定义化合物：分子量为手工输入，不是数据库值">自定义</span>' : '') +
+      '</div>' +
+      '<div class="rc">' + esc(g.cas || g.formula || (isCustomReagent(g) ? '手工输入分子量' : '')) + '</div></td>' +
       '<td class="c-mw" data-label="分子量"><span class="mwv">' + fmtMW(rowMW(r)) + '</span></td>' +
       '<td class="c-prop" data-label="密度/浓度"><button class="propbtn" data-field="__prop" type="button">' + esc(propLabel(r)) + '</button></td>' +
       '<td class="c-num" data-label="当量"><input type="text" data-field="equiv" inputmode="decimal"></td>' +
@@ -366,7 +374,7 @@ function renderHazardZone() {
     const hasB = b && (b.symbols.length || b.r.length);
     html += '<div class="hz-card unknown">' +
       '<div class="hz-title"><span class="hz-name">' + esc(rowName(row)) + '</span>' +
-      '<span class="hz-cas">' + esc(row.reagent.cas || row.reagent.formula || '') + '</span>' +
+      '<span class="hz-cas">' + esc(row.reagent.cas || row.reagent.formula || (isCustomReagent(row.reagent) ? '自定义化合物' : '')) + '</span>' +
       '<span class="hz-use">用量 ' + usageText(row) + '</span></div>' +
       '<div class="hz-note">' + esc((hz && hz.note) || '未获取到危害分类数据 — 请查阅 SDS 或试剂瓶标签') + '</div>' +
       (hasB ? '<div class="hz-baike">百科补充：' +

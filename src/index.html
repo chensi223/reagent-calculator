@@ -119,6 +119,31 @@
       <div class="add-hint" id="addHint"></div>
       <div class="add-progress" id="addProgress"></div>
       <div class="add-preview" id="addPreview"></div>
+
+      <!-- 手动输入：自己合成的化合物、只知道分子量、或分子式不好写（盐 / 水合物 / 混合物）时用 -->
+      <div class="manual-sec">
+        <button class="manual-toggle" id="manualToggle" type="button">
+          <span class="mt-arrow">▾</span> 查不到？手动输入分子量
+        </button>
+        <div class="manual-box" id="manualBox" hidden>
+          <div class="pv-row"><span class="pv-k">名称</span><span class="pv-v">
+            <input id="manName" type="text" placeholder="自定名称，如 化合物 3a" autocomplete="off"></span></div>
+          <div class="pv-row"><span class="pv-k">分子式</span><span class="pv-v">
+            <input id="manFormula" type="text" placeholder="选填，填了自动算分子量" autocomplete="off" spellcheck="false">
+            <span class="hintmini" id="manFormulaNote"></span></span></div>
+          <div class="pv-row"><span class="pv-k">分子量</span><span class="pv-v">
+            <input id="manMW" type="number" step="0.001" min="0" placeholder="必填" autocomplete="off"> g/mol</span></div>
+          <div class="pv-row"><span class="pv-k">密度</span><span class="pv-v">
+            <input id="manDensity" type="number" step="0.001" min="0" placeholder="选填" autocomplete="off"> g/mL
+            <span class="hintmini">填了才能按体积量取</span></span></div>
+          <div class="manual-note">
+            自定义化合物没有 CAS 号，<b>程序查不到它的危害数据</b>。加入后会在危险提醒里明确标注，请自行查阅 SDS。
+          </div>
+          <div class="manual-foot">
+            <button class="btn primary" id="manualAddBtn" type="button">加入投料表</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="modal-foot">
       <button class="btn" id="addCancelBtn">取消</button>

@@ -211,8 +211,10 @@ async function doAddLookup() {
     if (seq !== lookupSeq) return;
     prog.textContent = '';
     prev.innerHTML = '<div class="add-err">✕ ' + esc(e.message || '查询失败') + '</div>' +
-      '<div class="add-tip">提示：试剂瓶标签上一定印着 CAS 号，直接输 CAS 最可靠。</div>';
+      '<div class="add-tip">提示：试剂瓶标签上一定印着 CAS 号，直接输 CAS 最可靠。<br>' +
+      '如果是自己合成的化合物，在下面手动填个分子量就能建一条。</div>';
     document.getElementById('addConfirmBtn').disabled = true;
+    openManualSection(v);
   }
 }
 
@@ -289,6 +291,119 @@ function confirmAdd() {
   closeAddModal();
   addReagentToList(r);
   toast('已添加：' + (r.zh || r.cas || r.formula));
+}
+
+/* ---------------- 手动输入：自定义化合物 ---------------- */
+/* 场景：知道结构但查不到名字/CAS；或分子式不好写（盐、水合物、混合物、聚合物）；
+   或分子量来自文献/实测，不想让程序去猜。 */
+function bindManualSection() {
+  const tg = document.getElementById('manualToggle');
+  const box = document.getElementById('manualBox');
+  const fIn = document.getElementById('manFormula');
+  const mwIn = document.getElementById('manMW');
+  if (!tg || !box) return;
+
+  tg.addEventListener('click', () => {
+    const willOpen = box.hidden;
+    box.hidden = !willOpen;
+    tg.classList.toggle('open', willOpen);
+    if (willOpen) setTimeout(() => document.getElementById('manName').focus(), 30);
+  });
+
+  // 填了分子式就本地算分子量（IUPAC 原子量，不联网）
+  fIn.addEventListener('input', () => {
+    const note = document.getElementById('manFormulaNote');
+    const v = fIn.value.trim();
+    if (!v) { note.textContent = ''; note.className = 'hintmini'; return; }
+    const w = mwFromFormula(v);
+    if (w == null || !isFinite(w)) {
+      note.textContent = '⚠ 这个分子式解析不了';
+      note.className = 'hintmini bad';
+      return;
+    }
+    const cur = parseFloat(mwIn.value);
+    if (!mwIn.value.trim() || !isFinite(cur)) {
+      mwIn.value = w;
+      note.textContent = '✓ 已算出 ' + fmtMW(w);
+      note.className = 'hintmini ok';
+    } else if (Math.abs(cur - w) > 0.001) {
+      // 不擅自覆盖用户填的值，只提示差异
+      note.textContent = '分子式算出 ' + fmtMW(w) + '，与上面填的不一致';
+      note.className = 'hintmini bad';
+    } else {
+      note.textContent = '✓ 与分子式一致';
+      note.className = 'hintmini ok';
+    }
+  });
+
+  document.getElementById('manualAddBtn').addEventListener('click', addManualReagent);
+}
+
+// 查询失败时自动展开手动输入，并把刚输的内容带过去
+function openManualSection(prefill) {
+  const box = document.getElementById('manualBox');
+  const tg = document.getElementById('manualToggle');
+  if (!box) return;
+  box.hidden = false;
+  if (tg) tg.classList.add('open');
+  const v = (prefill || '').trim();
+  if (v) {
+    const t = detectInputType(v);
+    if (t.type === 'formula') {
+      const fIn = document.getElementById('manFormula');
+      if (fIn && !fIn.value.trim()) { fIn.value = v; fIn.dispatchEvent(new Event('input')); }
+    } else if (t.type !== 'cas') {
+      // CAS 号填进「名称」没意义，留给用户自己填
+      const nIn = document.getElementById('manName');
+      if (nIn && !nIn.value.trim()) nIn.value = v;
+    }
+  }
+  setTimeout(() => {
+    const el = document.getElementById('manMW').value.trim()
+      ? document.getElementById('manName') : document.getElementById('manMW');
+    if (el) el.focus();
+  }, 30);
+}
+
+function addManualReagent() {
+  const name = document.getElementById('manName').value.trim();
+  const formulaRaw = document.getElementById('manFormula').value.trim();
+  const mwRaw = document.getElementById('manMW').value.trim();
+  const densRaw = document.getElementById('manDensity').value.trim();
+
+  if (!name) { toast('请先填一个名称'); document.getElementById('manName').focus(); return; }
+  const mw = parseFloat(mwRaw);
+  if (!isFinite(mw) || mw <= 0) { toast('请填一个大于 0 的分子量'); document.getElementById('manMW').focus(); return; }
+
+  let formula = null, exact = null;
+  if (formulaRaw) {
+    const norm = normalizeFormula(formulaRaw);
+    if (norm) { formula = norm; exact = exactMassFromFormula(norm); }
+  }
+  let density = parseFloat(densRaw);
+  if (!isFinite(density) || density <= 0) density = null;
+
+  const r = normalizeReagent({
+    zh: name,
+    cas: null,
+    formula: formula,
+    mw: Math.round(mw * 1000) / 1000,
+    exact: exact,
+    density: density,
+    type: density != null ? 'liquid' : 'solid',
+    // 没有 CAS 就查不到 GHS 数据。给一个显式的 unknown，危险提醒区会原样显示这段话，
+    // 而不是让这一行在危险提醒里"消失"（消失会被误读成"安全"）。
+    hazard: {
+      signal: null, h: [], pict: [], stat: null, baike: null, src: [],
+      grade: 'unknown',
+      note: '自定义化合物 —— 程序查不到它的危害数据，请查阅 SDS 或试剂瓶标签'
+    },
+    note: '自定义化合物（分子量为手工输入）'
+  }, 'manual');
+
+  closeAddModal();
+  addReagentToList(r);
+  toast('已添加自定义化合物：' + name);
 }
 
 /* ---------------- 物性弹层 ---------------- */
@@ -617,6 +732,7 @@ function bindTopEvents() {
   document.getElementById('addModal').addEventListener('click', e => {
     if (e.target.id === 'addModal') closeAddModal();
   });
+  bindManualSection();
 
   document.getElementById('propType').addEventListener('change', syncPropFields);
   document.getElementById('propDensityQuery').addEventListener('click', queryDensityCandidates);
