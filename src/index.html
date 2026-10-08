@@ -173,6 +173,11 @@
       <div class="pv-row" id="propConcRow" hidden><span class="pv-k">浓度</span><span class="pv-v">
         <input id="propConc" type="number" step="0.01" placeholder="mol/L"> mol/L
         ｜介质 <input id="propMedium" type="text" placeholder="如 正己烷">
+        <div class="conc-tip">
+          这里的单位是 <b>mol/L</b>，<b>不是百分比</b>。<br>
+          质量分数（如 70% w/w）先换算：<code>C = 1000 × ρ × w% ÷ MW</code><br>
+          例：ρ=1.2、w=70%、MW=100 → C = 1000×1.2×0.70÷100 = <b>8.4 mol/L</b>
+        </div>
       </span></div>
       <div class="pv-row"><span class="pv-k">纯度</span><span class="pv-v">
         <input id="propPurity" type="number" step="0.1" placeholder="100"> %

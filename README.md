@@ -183,7 +183,10 @@ python build/make_icons.py                # 重新生成 PWA 图标
 python build/make_screenshots.py          # 重新生成 README 截图
 ```
 
-跑单元测试：用浏览器打开 `build/test_engine.html`，页面会列出全部 74 项断言结果。
+跑单元测试：
+
+- 用浏览器打开 `build/test_engine.html`，页面会列出全部 74 项断言结果
+- `python build/verify_numbers.py` 跑数值正确性校验 —— 18 个用例（当量换算、纯度折算、溶液浓度、70% 溶液 w/w 与 w/v、产物反算、反推参考物、缩放、混合形态），**期望值全部用 Python 独立按化学定义重新推导**，再用无头浏览器真跑程序比对
 
 **改代码时的几个坑**（都是实测踩出来的，细节见设计方案）：
 

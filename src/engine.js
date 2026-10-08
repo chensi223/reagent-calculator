@@ -249,6 +249,48 @@ function rowConc(row) {
 }
 
 /* ---------- 参考物摩尔数 ---------- */
+
+/* 这一行「用户明确给的」绝对摩尔数，没有就返回 null。
+   ★ 不能用 r.mmol —— 它可能是系统算出来的，不代表用户的意图。 */
+function rowUserMmol(r) {
+  const w = rowMW(r);
+  if (r.mmol && r.mmol.src === 'user' && qv(r.mmol) != null) return qv(r.mmol);
+  if (r.mass && r.mass.src === 'user' && qv(r.mass) != null && w) {
+    return qv(r.mass) * rowPurity(r) * 1000 / w;
+  }
+  if (r.volume && r.volume.src === 'user' && qv(r.volume) != null) {
+    if (r.type === 'solution') {
+      const c = rowConc(r);
+      if (c) return qv(r.volume) * c;
+    } else if (r.type === 'liquid') {
+      const d = rowDensity(r);
+      if (d && w) return qv(r.volume) * d * rowPurity(r) * 1000 / w;
+    }
+  }
+  return null;
+}
+
+/* 参考物自己算出来的绝对量，以及它到底是不是用户填的 */
+function refOwnMmol(ref) {
+  const w = rowMW(ref);
+  const n = qv(ref.mmol);
+  if (n != null) return { value: n, user: ref.mmol.src === 'user' };
+  const m = qv(ref.mass);
+  if (m != null && w) return { value: m * rowPurity(ref) * 1000 / w, user: ref.mass.src === 'user' };
+  const v = qv(ref.volume);
+  if (v != null) {
+    if (ref.type === 'solution') {
+      const c = rowConc(ref);
+      if (c) return { value: v * c, user: ref.volume.src === 'user' };
+    } else if (ref.type === 'liquid') {
+      const d = rowDensity(ref);
+      // 纯液体按体积投料时要算纯度：实际有效物 = 体积 × 密度 × 含量
+      if (d && w) return { value: v * d * rowPurity(ref) * 1000 / w, user: ref.volume.src === 'user' };
+    }
+  }
+  return null;
+}
+
 function refMmol(state) {
   const rows = state.rows;
   const ref = rows[state.refIndex];
@@ -261,24 +303,27 @@ function refMmol(state) {
     return state.product.targetMass / state.product.mw * 1000 / (y / 100);
   }
 
-  const n = qv(ref.mmol);
-  if (n != null) return n;
-  const m = qv(ref.mass);
-  const w = rowMW(ref);
-  if (m != null && w) return m * rowPurity(ref) * 1000 / w;
-  const v = qv(ref.volume);
-  if (v != null) {
-    if (ref.type === 'solution') {
-      const c = rowConc(ref);
-      if (c) return v * c;
-    } else if (ref.type === 'liquid') {
-      const d = rowDensity(ref);
-      // 纯液体按体积投料时要算纯度：实际有效物 = 体积 × 密度 × 含量
-      if (d && w) return v * d * rowPurity(ref) * 1000 / w;
-    }
+  const own = refOwnMmol(ref);
+
+  // 参考物自己带的是「用户填的」绝对量 → 以它为准，不做别的推断
+  if (own != null && own.user) return own.value;
+
+  // ★ 参考物没有用户填的绝对量（典型情况：第一行自动预填的那个 100 mmol），
+  //   就先看别的行有没有用户明确的输入可以反推。
+  //   否则用户在其它行填的质量/当量会被那个默认值无声地压住 ——
+  //   用户的本意显然是「按我填的那个量走」。2026-10-08 实测踩到过。
+  for (const r of rows) {
+    if (r === ref) continue;
+    const ei = qv(r.equiv);
+    if (ei == null || ei <= 0) continue;
+    const ni = rowUserMmol(r);
+    if (ni != null) return ni / ei;
   }
 
-  // 回退：参考物自己没有绝对量时，从其它已知行反推 n_ref = n_i / e_i
+  // 反推不出来，才回到参考物自己的值（默认值 / 系统值）
+  if (own != null) return own.value;
+
+  // 最后回退：任意一行的 摩尔数 ÷ 当量
   for (const r of rows) {
     if (r === ref) continue;
     const ni = qv(r.mmol), ei = qv(r.equiv);
@@ -354,9 +399,16 @@ function solve(state) {
           if (r.mass.src === 'user') { r.mass = { v: null, src: null }; changed = true; }
           if (r.volume.src === 'user') { r.volume = { v: null, src: null }; changed = true; }
           if (nR != null && qv(r.mmol) !== nR) { setCell(r.mmol, nR, 'sys'); changed = true; }
-        } else if (nR != null && qv(r.mmol) == null) {
-          // 由其它行反推出的 n_ref 回填到参考物行
-          if (setCell(r.mmol, nR, 'sys')) changed = true;
+        } else if (nR != null) {
+          // 把参考物的绝对量对齐到 nR。
+          // ★ 不能只在 mmol 为空时才回填：第一行自动预填的那个 100 mmol 会一直占着位，
+          //   让用户在其它行填的质量/当量反推不出来（2026-10-08 实测踩到）。
+          //   nR 要么是参考物自己「用户填的」值（此时相等，不会覆盖），
+          //   要么是从别的行反推出来的值（此时本来就该覆盖掉那个系统默认值）。
+          const cur = qv(r.mmol);
+          if (cur == null || Math.abs(cur - nR) > Math.abs(nR) * 1e-9) {
+            if (setCell(r.mmol, nR, 'sys')) changed = true;
+          }
         }
       } else if (nR != null && nR > 0) {
         if (qv(r.equiv) == null && qv(r.mmol) != null) {
@@ -386,8 +438,19 @@ function solve(state) {
     if (r.type === 'liquid' && qv(r.volume) == null && rowDensity(r) == null && qv(r.mass) != null) {
       warnings.push({ level: 'warn', msg: `${nm}：缺少密度，无法换算体积。请补密度或按质量称取。` });
     }
-    if (r.type === 'solution' && rowConc(r) == null) {
-      warnings.push({ level: 'warn', msg: `${nm}：溶液试剂缺少浓度，无法换算体积。` });
+    if (r.type === 'solution') {
+      const c = rowConc(r);
+      if (c == null) {
+        warnings.push({ level: 'warn', msg: `${nm}：溶液试剂缺少浓度，无法换算体积。` });
+      } else if (c > 20) {
+        // 常见溶液没有超过 20 mol/L 的（纯硫酸才 18）。填到这么大，
+        // 基本上是把「百分比浓度」当成 mol/L 填进来了。
+        warnings.push({
+          level: 'warn',
+          msg: `${nm}：浓度填的是 ${c} mol/L —— 常见溶液都在 20 mol/L 以下，是不是把百分比（如 70%）直接填进浓度框了？` +
+            `质量分数要先换算：C = 1000 × 密度 × 质量分数 ÷ 分子量。`
+        });
+      }
     }
   }
   return warnings;

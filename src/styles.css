@@ -454,6 +454,18 @@ ul.hz-h code { font-family: var(--mono); font-size: 12px; font-weight: 650; flex
   .manual-box .pv-v input[type="number"] { width: 100%; max-width: 200px; }
 }
 
+/* ---- 浓度单位换算提示（防止把百分比当 mol/L 填）---- */
+.conc-tip {
+  display: block; margin-top: 7px; padding: 7px 9px;
+  font-size: 12.5px; line-height: 1.7; color: #7a6a48;
+  background: #fdf9ef; border: 1px solid #f0e6cc; border-radius: 6px;
+}
+.conc-tip b { color: #5a4a28; }
+.conc-tip code {
+  background: #f4eeda; padding: 1px 5px; border-radius: 3px;
+  font-family: Consolas, Menlo, monospace; font-size: 12px;
+}
+
 /* ---- 拖动排序 ---- */
 .refcell { display: flex; align-items: center; justify-content: center; gap: 3px; }
 .draghandle {
