@@ -70,20 +70,43 @@ function bindTableEvents() {
       const oldIdx = state.refIndex;
       if (newIdx === oldIdx) return;                 // 点自己：什么都不做（别把 default 磨成 user）
 
-      const newMmol = qv(state.rows[newIdx].mmol);   // 切换前先量出新参考物的绝对量
+      const newRow = state.rows[newIdx];
+      const oldRow = state.rows[oldIdx];
+      const newMmol = qv(newRow.mmol);               // 切换前先量出新参考物的绝对量
+
+      // ★ 把新参考物「成为参考物之前」的当量备份下来。
+      //   参考物的当量会被求解器强制写成 1.00，不备份的话，它以后不再是参考物时
+      //   就恢复不回去了 —— 来回切两次，一个原本 1.1 当量的试剂会变成 1.32。
+      //   （2026-10-08 用「切换参考物后是否完全复原」的测试抓到的）
+      if (newRow.equiv && newRow.equiv.src === 'user' && qv(newRow.equiv) != null) {
+        newRow.equivBackup = qv(newRow.equiv);
+      }
 
       state.refIndex = newIdx;
 
-      // 旧参考物的「当量 = 1.00」是「它是参考物」这个身份带来的，换人之后作废，交给求解器重算
-      const oldRow = state.rows[oldIdx];
-      if (oldRow) oldRow.equiv = { v: null, src: null };
+      // 旧参考物：恢复它成为参考物之前的当量；没有备份才清空（交给求解器重算）
+      if (oldRow) {
+        if (oldRow.equivBackup != null) {
+          oldRow.equiv = { v: oldRow.equivBackup, src: 'user' };
+          oldRow.equivBackup = null;
+          // 它在当参考物期间被固化的绝对量（'default'）也一并撤掉，
+          // 让它按恢复后的当量重新算，这样来回切才能回到原值。
+          // 用户亲手填的绝对量（'user'）不动。
+          if (oldRow.mmol && oldRow.mmol.src === 'default') oldRow.mmol = { v: null, src: null };
+        } else {
+          oldRow.equiv = { v: null, src: null };
+        }
+      }
 
       // 新参考物：把绝对量保住，否则换完参考物整表就没了锚点。
       // ★ 标成 'default' 而不是 'user' —— 这个数是程序记下来的，不是用户填的。
       //   标成 user 会让它赖着不走：用户之后改这一行的质量/体积时，
       //   会出现「10 g 却写着 120 mmol」这种自相矛盾（2026-10-06 实测复现过）。
       //   'default' 的语义正是「系统给的锚点，用户一动就让位」（applyCellInput 里清的就是它）。
-      if (newMmol != null) state.rows[newIdx].mmol = { v: newMmol, src: 'default' };
+      if (newMmol != null) {
+        const keepUser = newRow.mmol && newRow.mmol.src === 'user';
+        newRow.mmol = { v: newMmol, src: keepUser ? 'user' : 'default' };
+      }
 
       renderTable(); refresh();
     } else if (el.dataset.field === 'role') {

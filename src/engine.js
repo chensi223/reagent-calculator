@@ -407,7 +407,15 @@ function solve(state) {
           //   要么是从别的行反推出来的值（此时本来就该覆盖掉那个系统默认值）。
           const cur = qv(r.mmol);
           if (cur == null || Math.abs(cur - nR) > Math.abs(nR) * 1e-9) {
-            if (setCell(r.mmol, nR, 'sys')) changed = true;
+            if (setCell(r.mmol, nR, 'sys')) {
+              changed = true;
+              // ★ 摩尔数被改写了，由它派生的质量/体积（系统算的）必须作废重算。
+              //   注意 (a) 排在 (c) 前面，所以本轮那个质量是按「旧摩尔数」算出来的；
+              //   不作废的话它会一直留着，变成「59.5 mmol 却配着 19.2 g」这种自相矛盾
+              //   （2026-10-08 用随机操作序列测试抓到的）。
+              if (r.mass && r.mass.src === 'sys') { r.mass = { v: null, src: null }; changed = true; }
+              if (r.volume && r.volume.src === 'sys') { r.volume = { v: null, src: null }; changed = true; }
+            }
           }
         }
       } else if (nR != null && nR > 0) {

@@ -6,7 +6,7 @@
 
    ★ CACHE 必须带内容指纹。否则 sw.js 自身的字节没变时，浏览器不会重新安装
      Service Worker，cache-first 会让用户永远停在旧版本上（服务器改了也白改）。 */
-const CACHE = 'clc-0114cb930e';
+const CACHE = 'clc-1325cdf983';
 const ASSETS = ['./', './index.html', './manifest.json',
                 './icon-192.png', './icon-512.png', './apple-touch-icon.png', './favicon.png'];
 
