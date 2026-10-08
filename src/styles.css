@@ -454,6 +454,19 @@ ul.hz-h code { font-family: var(--mono); font-size: 12px; font-weight: 650; flex
   .manual-box .pv-v input[type="number"] { width: 100%; max-width: 200px; }
 }
 
+/* ---- 拖动排序 ---- */
+.refcell { display: flex; align-items: center; justify-content: center; gap: 3px; }
+.draghandle {
+  color: #8e9aa7; font-size: 16px; line-height: 1;
+  cursor: grab; touch-action: none; user-select: none;
+  padding: 3px 2px; border-radius: 4px;
+}
+.draghandle:hover { color: #1668c1; background: #eef4fb; }
+.draghandle:active { cursor: grabbing; }
+tr.dragging { opacity: .45; background: #eaf3ff !important; box-shadow: 0 2px 10px rgba(22,104,193,.18); }
+body.row-dragging { cursor: grabbing; user-select: none; }
+body.row-dragging * { cursor: grabbing !important; }
+
 /* ---- 打印：只出投料表 ---- */
 @media print {
   body { background: #fff; }

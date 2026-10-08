@@ -299,7 +299,9 @@ function renderTable() {
     const warnMark = hzGrade === 'high' ? '<span class="hzw" title="高危险试剂">⚠</span>' : '';
 
     tr.innerHTML =
-      '<td class="c-ref"><input type="radio" name="refsel" data-field="__ref"' + (i === state.refIndex ? ' checked' : '') + '></td>' +
+      '<td class="c-ref"><div class="refcell">' +
+      '<span class="draghandle" data-drag title="按住拖动可调整顺序">⠿</span>' +
+      '<input type="radio" name="refsel" data-field="__ref"' + (i === state.refIndex ? ' checked' : '') + '></div></td>' +
       '<td class="c-name">' +
       '<div class="rn"><span class="hzwrap" data-field="__warn"></span>' + esc(rowName(r)) +
       (isCustomReagent(g) ? '<span class="tag-custom" title="自定义化合物：分子量为手工输入，不是数据库值">自定义</span>' : '') +

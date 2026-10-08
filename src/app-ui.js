@@ -66,10 +66,25 @@ function bindTableEvents() {
     const row = state.rows[i];
     if (!row) return;
     if (el.dataset.field === '__ref') {
-      const keepMmol = qv(state.rows[i].mmol);   // 切换前先记住新参考物的绝对量
-      state.refIndex = i;
-      state.rows.forEach((r, k) => { if (k !== i && r.equiv.src === 'ref') r.equiv = { v: null, src: null }; });
-      if (keepMmol != null) state.rows[i].mmol = { v: keepMmol, src: 'user' };
+      const newIdx = i;
+      const oldIdx = state.refIndex;
+      if (newIdx === oldIdx) return;                 // 点自己：什么都不做（别把 default 磨成 user）
+
+      const newMmol = qv(state.rows[newIdx].mmol);   // 切换前先量出新参考物的绝对量
+
+      state.refIndex = newIdx;
+
+      // 旧参考物的「当量 = 1.00」是「它是参考物」这个身份带来的，换人之后作废，交给求解器重算
+      const oldRow = state.rows[oldIdx];
+      if (oldRow) oldRow.equiv = { v: null, src: null };
+
+      // 新参考物：把绝对量保住，否则换完参考物整表就没了锚点。
+      // ★ 标成 'default' 而不是 'user' —— 这个数是程序记下来的，不是用户填的。
+      //   标成 user 会让它赖着不走：用户之后改这一行的质量/体积时，
+      //   会出现「10 g 却写着 120 mmol」这种自相矛盾（2026-10-06 实测复现过）。
+      //   'default' 的语义正是「系统给的锚点，用户一动就让位」（applyCellInput 里清的就是它）。
+      if (newMmol != null) state.rows[newIdx].mmol = { v: newMmol, src: 'default' };
+
       renderTable(); refresh();
     } else if (el.dataset.field === 'role') {
       row.role = el.value; saveState();
@@ -107,6 +122,85 @@ function bindTableEvents() {
   }, true);
   tbody.addEventListener('keydown', e => {
     if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.target.blur(); }
+  });
+
+  bindRowDrag();
+}
+
+/* ---------------- 拖动排序 ---------------- */
+/* 按住行首的 ⠿ 手柄拖动即可换顺序（鼠标、触屏都行）。
+   ★ 指针监听挂在 document 上而不是行元素上 —— 拖动过程中表格会整块重建，
+     挂在自己身上的监听会跟着一起消失。
+   ★ 位移超过 6px 才真正进入拖动，避免轻轻一点就误触发。 */
+let dragFromIdx = -1;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragArmed = false;
+
+function moveRow(from, to) {
+  const rows = state.rows;
+  if (from === to || from < 0 || to < 0 || from >= rows.length || to >= rows.length) return;
+  const item = rows.splice(from, 1)[0];
+  rows.splice(to, 0, item);
+  // 参考物的下标要跟着搬家
+  if (state.refIndex === from) state.refIndex = to;
+  else if (from < state.refIndex && to >= state.refIndex) state.refIndex--;
+  else if (from > state.refIndex && to <= state.refIndex) state.refIndex++;
+}
+
+function bindRowDrag() {
+  const tbody = document.getElementById('chargeBody');
+  if (!tbody) return;
+
+  function markDragging() {
+    const tr = tbody.querySelector('tr[data-row="' + dragFromIdx + '"]');
+    if (tr) tr.classList.add('dragging');
+  }
+
+  function onMove(e) {
+    if (dragFromIdx < 0) return;
+    if (!dragArmed) {
+      if (Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY) < 6) return;
+      dragArmed = true;
+      document.body.classList.add('row-dragging');
+      markDragging();
+    }
+    e.preventDefault();
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const tr = el && el.closest ? el.closest('tr[data-row]') : null;
+    if (!tr) return;
+    const to = +tr.dataset.row;
+    if (to === dragFromIdx) return;
+    moveRow(dragFromIdx, to);
+    dragFromIdx = to;
+    renderTable();
+    markDragging();
+  }
+
+  function onUp() {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onUp);
+    const moved = dragArmed;
+    dragFromIdx = -1;
+    dragArmed = false;
+    document.body.classList.remove('row-dragging');
+    tbody.querySelectorAll('tr.dragging').forEach(tr => tr.classList.remove('dragging'));
+    if (moved) refresh();
+  }
+
+  tbody.addEventListener('pointerdown', e => {
+    const handle = e.target.closest('[data-drag]');
+    if (!handle) return;
+    if (e.button != null && e.button !== 0) return;      // 只响应左键
+    e.preventDefault();
+    dragFromIdx = +handle.closest('tr').dataset.row;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragArmed = false;
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
   });
 }
 
@@ -171,6 +265,7 @@ function openAddModal(initial) {
   document.getElementById('addPreview').innerHTML = '';
   document.getElementById('addProgress').textContent = '';
   document.getElementById('addConfirmBtn').disabled = true;
+  resetManualSection();
   updateAddHint();
   setTimeout(() => inp.focus(), 30);
 }
@@ -296,6 +391,25 @@ function confirmAdd() {
 /* ---------------- 手动输入：自定义化合物 ---------------- */
 /* 场景：知道结构但查不到名字/CAS；或分子式不好写（盐、水合物、混合物、聚合物）；
    或分子量来自文献/实测，不想让程序去猜。 */
+
+/* 每次打开「添加试剂」都把手动输入区恢复成干净状态 ——
+   上一次填的名称/分子式/分子量/密度不应该留到这一次来（那些试剂早就进「最近用过」了，
+   要复用直接点「最近用过」或者重新输名字即可）。
+   注意：查询失败时走的是 openManualSection()，那条路径要保住用户刚输的内容不要清掉。 */
+function resetManualSection() {
+  const box = document.getElementById('manualBox');
+  const tg = document.getElementById('manualToggle');
+  if (!box || !tg) return;
+  box.hidden = true;
+  tg.classList.remove('open');
+  ['manName', 'manFormula', 'manMW', 'manDensity'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const note = document.getElementById('manFormulaNote');
+  if (note) { note.textContent = ''; note.className = 'hintmini'; }
+}
+
 function bindManualSection() {
   const tg = document.getElementById('manualToggle');
   const box = document.getElementById('manualBox');
